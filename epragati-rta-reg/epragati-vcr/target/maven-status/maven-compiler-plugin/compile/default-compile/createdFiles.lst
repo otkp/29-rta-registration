@@ -1,0 +1,16 @@
+org\tempuri\LicRegVCRDetailsLocator.class
+org\epragati\vcr\controller\VcrController.class
+org\epragati\vcr\model\VcrServiceResponse.class
+org\epragati\vcr\service\VcrServiceImpl.class
+org\epragati\App.class
+org\epragati\vcr\model\VcrOffenseDetails.class
+org\epragati\vcr\DocType.class
+org\epragati\vcr\model\VcrDataModel.class
+org\tempuri\LicRegVCRDetails.class
+org\epragati\vcr\model\VcrResponseModel.class
+org\tempuri\LicRegVCRDetailsSoap.class
+org\epragati\vcr\model\VcrBookingData.class
+org\epragati\vcr\service\VcrService.class
+org\tempuri\LicRegVCRDetailsSoapProxy.class
+org\tempuri\LicRegVCRDetailsSoapStub.class
+org\epragati\vcr\VcrStringUtils.class

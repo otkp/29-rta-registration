@@ -1,0 +1,508 @@
+package org.epragati.payments
+import org.epragati.rules.FeePartsVO 
+import java.util.List
+import java.util.ArrayList
+import java.util.Arrays
+import java.util.Collection
+import java.util.Set
+import java.util.stream.Collectors
+import java.util.Map
+import java.util.HashMap
+import org.apache.commons.collections4.CollectionUtils
+import org.epragati.util.payment.ServiceCodeEnum
+import org.epragati.util.payment.ServiceEnum
+import org.epragati.util.payment.ClassOfVehicleEnum
+import org.epragati.tax.vo.TaxTypeEnum
+import org.epragati.constants.OwnerTypeEnum
+import org.epragati.payments.vo.ClassOfVehiclesVO
+import org.epragati.payments.vo.FeePartsDetailsVo
+import org.epragati.payment.dto.FeesDTO
+global org.epragati.payments.dao.PaymentFeesDeatailsDAO feesDao;
+global org.epragati.ruleenigne.paymentsserviceimpl.PaymentGatewayServiceImpl paymentsHelper;
+import java.util.Optional
+
+
+
+
+rule "TEST"
+
+when
+m : FeePartsVO(isChassesVehicle())
+then
+System.out.println("Test");
+end
+
+
+rule "FC_CALCULATE"
+salience 105
+when 
+m :FeePartsVO()
+if(m.isCalculateFc()) do[CALCULATEFC]
+else if(m.isChassesVehicle() && !m.isARVTVehicle()) do[CHASSIS_NONARVT]
+
+then
+System.out.println("FC_CALCULATE");
+
+then[CALCULATEFC]
+m.getServiceEnum().add(ServiceEnum.NEWFC);
+System.out.println("is calculateFc");
+
+then[CHASSIS_NONARVT]
+System.out.println("CHASSIS NON ARVT");
+if (m.getStagingRegDetails().getClassOfVehicle().equalsIgnoreCase(ClassOfVehicleEnum.CHST.getCovCode())) {
+				m.getServiceEnum().add(ServiceEnum.NEWFC);
+				System.out.println("CHST "+m.getServiceEnum());
+			}
+if(m.getStagingRegDetails().getOwnerType().equals(OwnerTypeEnum.Government) || m.getStagingRegDetails().getOwnerType().equals(OwnerTypeEnum.POLICE)) {
+				m.setIgnoreApplicationFee(true);
+								System.out.println("GOVVT OR POLICE "+m.isIgnoreApplicationFee());
+				
+			}
+end	
+ 	
+rule "OTHERSTATE"
+salience 104
+when 
+m: FeePartsVO(isOtherState() && getRegServiceDetials()!=null  && (getRegServiceDetials().getRegistrationDetails().getOwnerType().equals(OwnerTypeEnum.Government)
+					|| getRegServiceDetials().getRegistrationDetails().getOwnerType().equals(OwnerTypeEnum.POLICE)))
+then
+m.setIgnoreApplicationFee(true);
+end
+ 
+rule "CAL"
+salience 103
+when 
+m :FeePartsVO()
+
+then
+Double lateFee = 0d;
+Double lateFeeForFC = 0d;
+Double taxServiceFeeAmount = 0d;
+List<ClassOfVehiclesVO> classOfVehiclesList = m.getCovs();
+Set<String> codeSet = classOfVehiclesList.stream().map(h -> h.getCovCode()).collect(Collectors.toSet());
+	boolean ignoreApplicationFee = false;
+codeSet.add("TEST");
+		Map<String, FeePartsDetailsVo> feePartsMap = new HashMap<>();
+
+
+//m.getServiceEnum().remove(ServiceEnum.HIREPURCHASETERMINATION);
+	ServiceCodeEnum subHeadCodeEnum = null;
+for (ServiceEnum id : m.getServiceEnum()) {
+				System.out.println("service Id ---"+id );
+
+
+List<FeesDTO> feeDTOList = paymentsHelper.feeDetailsCommonMehod(m.getWeightType(), codeSet, id, m.getPermitTypeCode(), m.getSeatingCapacity());
+			String serviceFee = ServiceCodeEnum.SERVICE_FEE.getCode();
+
+			List<String> Frexcemption = new ArrayList<String>();
+			Frexcemption.add(ClassOfVehicleEnum.CHST.getCovCode());
+			Frexcemption.add(ClassOfVehicleEnum.CHSN.getCovCode());
+			FeesDTO feeDtos = new FeesDTO();
+			FeesDTO taxDetails = new FeesDTO();
+			FeesDTO penalityFee = new FeesDTO();
+			FeesDTO penalityArrearsFee = new FeesDTO();
+			FeesDTO taxArrearsFee = new FeesDTO();
+			FeesDTO greenTaxDetails = new FeesDTO();
+			FeesDTO lateFeeDetails = new FeesDTO();
+			FeesDTO lateFeeDetailsForFc = new FeesDTO();
+			FeesDTO taxServiceFee = new FeesDTO();
+			FeesDTO quaterTaxForNewGoDetails = new FeesDTO();
+			boolean match = Frexcemption.stream().anyMatch(s -> codeSet.contains(s));
+			Optional<FeesDTO> serviceFeeoptional = null;
+			
+			List<ServiceEnum> renewalServices = Arrays.asList(ServiceEnum.RENEWAL, ServiceEnum.RENEWALLATEFEE,
+					ServiceEnum.RENEWALOFPERMIT);
+			if (m.getServiceEnum() != null && m.getServiceEnum().stream().anyMatch(val ->renewalServices.contains(val))) {
+				lateFee = paymentsHelper.calculateLateFee(m.getRegApplicationNo(), m.getServiceEnum(), m.getSlotDate(), m.getPermitTypeCode(),
+						m.getSeatingCapacity(), m.getWeightType(), codeSet);
+				if (lateFee != null && lateFee != 0) {
+					lateFeeDetails.setFeesType(ServiceCodeEnum.LATE_FEE.getTypeDesc());
+					lateFeeDetails.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+					feeDTOList.add(lateFeeDetails);
+				}
+			}
+			
+			System.out.println("serviceEnum ="+m.getServiceEnum() +" isCalculateFc ="+m.isCalculateFc() +"taxAmount ="+m.getTaxAmount() +"taxType ="+m.getTaxType() +" QuaterTaxForNewGo ="+m.getQuaterTaxForNewGo() +"Cess Fess ="+m.getCesFee() + " Penality ="+m.getPenality() +" Penality Arrears ="+m.getPenalityArrears() +" TaxArrears ="+m.getTaxArrears() +" GreenTax ="+m.getGrenTaxAmount());
+			
+			if (m.getTaxAmount() != null && m.getTaxType() != null && m.getTaxAmount() > 0) {
+				taxDetails.setFeesType( m.getTaxType());
+				taxDetails.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+				feeDTOList.add(taxDetails);
+				if (taxServiceFeeAmount == 0) {
+					taxServiceFeeAmount = paymentsHelper.getTaxServiceFee(m.getTaxAmount(), m.isChassesVehicle(), m.getServiceEnum());
+				}
+				taxServiceFee.setFeesType(ServiceCodeEnum.TAXSERVICEFEE.getTypeDesc());
+				taxServiceFee.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+				feeDTOList.add(taxServiceFee);
+			}
+			
+			
+			if (m.getQuaterTaxForNewGo() != null && m.getQuaterTaxForNewGo()> 0) {
+				System.out.println("QuaterTaxForNewGo :"+m.getQuaterTaxForNewGo());
+				quaterTaxForNewGoDetails.setFeesType(TaxTypeEnum.QuarterlyTax.getDesc());
+				quaterTaxForNewGoDetails.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+				feeDTOList.add(quaterTaxForNewGoDetails);
+			}
+			
+			
+			if (m.getCesFee()!= null && m.getCesFee()!= 0) {
+			    System.out.println("CessFee :"+m.getCesFee());
+				feeDtos.setFeesType(ServiceCodeEnum.CESS_FEE.getTypeDesc());
+				feeDtos.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+				feeDTOList.add(feeDtos);
+			}
+			
+			if (m.getPenality() != null && m.getPenality()!= 0 && m.getPenality()> 0) {
+			    System.out.println("Penality Fee:"+m.getPenality());
+				penalityFee.setFeesType(ServiceCodeEnum.PENALTY.getTypeDesc());
+				penalityFee.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+				feeDTOList.add(penalityFee);
+			}
+			
+			if (m.getPenalityArrears() != null && m.getPenalityArrears()!= 0 && m.getPenalityArrears()> 0) {
+				System.out.println("Penality Arrears :"+m.getPenalityArrears());
+				penalityArrearsFee.setFeesType(ServiceCodeEnum.PENALTYARREARS.getCode());
+				penalityArrearsFee.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+				feeDTOList.add(penalityArrearsFee);
+			}
+			
+			if (m.getTaxArrears() != null  && m.getTaxArrears() > 0) {
+				taxArrearsFee.setFeesType(ServiceCodeEnum.TAXARREARS.getCode());
+				taxArrearsFee.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+				feeDTOList.add(taxArrearsFee);
+			}
+			if (m.getGrenTaxAmount() != null && m.getGrenTaxAmount()!= 0) {
+				greenTaxDetails.setFeesType(ServiceCodeEnum.GREEN_TAX.getTypeDesc());
+				greenTaxDetails.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+				feeDTOList.add(greenTaxDetails);
+			}
+			
+			List<ServiceEnum> fcServices = Arrays.asList(ServiceEnum.NEWFC, ServiceEnum.RENEWALFC,
+					ServiceEnum.OTHERSTATIONFC, ServiceEnum.FCLATEFEE);
+			
+			if ( m.getServiceEnum() != null  && m.getServiceEnum().stream().anyMatch(val ->fcServices.contains(val))   && !m.isCalculateFc() &&  m.getServiceEnum().size() == 1) {
+				lateFeeForFC = paymentsHelper.getFcLateFee(m.getRegApplicationNo(), m.getSlotDate(), m.isRequestToPay());
+				if (lateFeeForFC != null && lateFeeForFC != 0) {
+					lateFeeDetailsForFc.setFeesType(ServiceCodeEnum.FC_LATE_FEE.getTypeDesc());
+					lateFeeDetailsForFc.setCovcode(classOfVehiclesList.stream().findFirst().get().getCovCode());
+					feeDTOList.add(lateFeeDetailsForFc);
+				}
+			}
+			
+			System.out.println("serviceId :"+id.getId() +"codeset" +codeSet +"servicefee" +serviceFee);
+			serviceFeeoptional = feesDao.findByServiceIdInAndCovcodeInAndFeesType(id.getId(), codeSet, serviceFee);
+		   System.out.println("	serviceFeeoptional "+serviceFeeoptional);
+			if (serviceFeeoptional.isPresent()) {
+				feeDTOList.add(serviceFeeoptional.get());
+			}
+m.setFeeList(feeDTOList);		
+System.out.println("feeDetails" +feeDTOList);
+List<String> feeCodes=	Arrays.asList(ServiceCodeEnum.CESS_FEE.getTypeDesc(), ServiceCodeEnum.LATE_FEE.getTypeDesc(),
+					ServiceCodeEnum.FC_LATE_FEE.getTypeDesc(), ServiceCodeEnum.GREEN_TAX.getTypeDesc(),
+					ServiceCodeEnum.LATE_FEE.getTypeDesc(), ServiceCodeEnum.TAXSERVICEFEE.getTypeDesc());
+					
+				System.out.println("feeDTO list"+feeDTOList+" for id"+id);
+for (FeesDTO feeDto : feeDTOList) {
+				if(feeCodes.contains(feeDto.getFeesType())) 
+				 {
+				 									System.out.println("suheadCode for registration if rules");
+				 
+					subHeadCodeEnum = ServiceCodeEnum.getSubHeadCodeEnumByDesc(feeDto.getFeesType());
+				} else {
+								 									System.out.println("suheadCode for registration else rules");
+				
+					subHeadCodeEnum = ServiceCodeEnum.getSubHeadCodeEnum(feeDto.getFeesType());
+				}
+				if (m.isIgnoreApplicationFee()) {
+									System.out.println("ignore application No for registration rules");
+				
+					if (feeDto.getFeesType().equalsIgnoreCase(ServiceCodeEnum.REGISTRATION.getCode())) {
+						continue;
+					}
+				}
+				if (feeDto.getModuleCode() != null && feeDto.getModuleCode().equalsIgnoreCase("FC")
+						&& feeDto.getFeesType().equalsIgnoreCase(ServiceCodeEnum.REGISTRATION.getCode())) {
+					subHeadCodeEnum = ServiceCodeEnum.FITNESS_FEE;
+				}
+				if (feeDto.getModuleCode() != null && feeDto.getModuleCode().equalsIgnoreCase("FC")
+						&& feeDto.getFeesType().equalsIgnoreCase(ServiceCodeEnum.SERVICE_FEE.getCode())) {
+					subHeadCodeEnum = ServiceCodeEnum.FITNESS_SERVICE_FEE;
+				}
+
+
+
+
+
+if (codeSet.contains(feeDto.getCovCode())) {
+switch (subHeadCodeEnum) {
+
+					case REGISTRATION:
+					System.out.println("case REGISTRATION");
+					
+						if (feePartsMap.containsKey(ServiceCodeEnum.REGISTRATION.getCode())) {
+											System.out.println("case REGISTRATION  if for id"+id);
+						
+							FeePartsDetailsVo feePartsDetailsVo = feePartsMap
+									.get(ServiceCodeEnum.REGISTRATION.getCode());
+							feePartsDetailsVo.setAmount(feePartsDetailsVo.getAmount() + feeDto.getAmount());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+						} else {
+						System.out.println("case REGISTRATION  else for id"+id);
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(feeDto.getAmount());
+							feePartsDetailsVo.setHOA(feeDto.getHOA());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsMap.put(ServiceCodeEnum.REGISTRATION.getCode(), feePartsDetailsVo);
+
+						}
+						break;
+
+					case FITNESS_FEE:
+						System.out.println("case FITNESS_FEE");
+						if (!feePartsMap.containsKey(ServiceCodeEnum.FITNESS_FEE.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(feeDto.getAmount());
+							feePartsDetailsVo.setHOA(feeDto.getHOA());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsMap.put(ServiceCodeEnum.FITNESS_FEE.getTypeDesc(), feePartsDetailsVo);
+						}
+						break;
+					case FITNESS_SERVICE_FEE:
+					System.out.println("case FITNESS_SERVICE_FEE");
+						Double fcserviceAmount = feeDto.getAmount();
+						if (feePartsMap.containsKey(ServiceCodeEnum.FITNESS_SERVICE_FEE.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = feePartsMap
+									.get(ServiceCodeEnum.FITNESS_SERVICE_FEE.getTypeDesc());
+							if (feePartsDetailsVo.getAmount() < fcserviceAmount) {
+								feePartsDetailsVo.setAmount(fcserviceAmount);
+								feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							}
+						} else {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(fcserviceAmount);
+							feePartsDetailsVo.setHOA(feeDto.getHOA());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsMap.put(ServiceCodeEnum.FITNESS_SERVICE_FEE.getTypeDesc(), feePartsDetailsVo);
+						}
+						break;
+
+                    case PERMIT_FEE:
+						break;
+						
+					case CESS_FEE:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.CESS_FEE.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(m.getCesFee().doubleValue());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("cessCreditAccount"));
+							feePartsMap.put(ServiceCodeEnum.CESS_FEE.getTypeDesc(), feePartsDetailsVo);
+						}
+						break;
+					case QLY_TAX:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.QLY_TAX.getCode())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							if (m.getQuaterTaxForNewGo() != null && m.getQuaterTaxForNewGo() > 0) {
+								feePartsDetailsVo.setAmount(m.getQuaterTaxForNewGo().doubleValue());
+							} else {
+								feePartsDetailsVo.setAmount(m.getTaxAmount().doubleValue());
+							}
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("qutrelyTaxHoa"));
+							feePartsMap.put(ServiceCodeEnum.QLY_TAX.getCode(), feePartsDetailsVo);
+						}
+						break;
+					case HALF_TAX:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.HALF_TAX.getCode())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(m.getTaxAmount().doubleValue());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("qutrelyTaxHoa"));
+							feePartsMap.put(ServiceCodeEnum.HALF_TAX.getCode(), feePartsDetailsVo);
+						}
+						break;
+					case YEAR_TAX:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.YEAR_TAX.getCode())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(m.getTaxAmount().doubleValue());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("qutrelyTaxHoa"));
+							feePartsMap.put(ServiceCodeEnum.YEAR_TAX.getCode(), feePartsDetailsVo);
+						}
+						break;
+					case LIFE_TAX:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.LIFE_TAX.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(m.getTaxAmount().doubleValue());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("lifeTaxHoa"));
+							feePartsMap.put(ServiceCodeEnum.LIFE_TAX.getTypeDesc(), feePartsDetailsVo);
+						}
+						break;
+
+
+                    case GREEN_TAX:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.GREEN_TAX.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(m.getGrenTaxAmount().doubleValue());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("greenTaxHoa"));
+							feePartsMap.put(ServiceCodeEnum.GREEN_TAX.getTypeDesc(), feePartsDetailsVo);
+						}
+						break;
+					case SERVICE_FEE:
+						Double serviceAmount = feeDto.getAmount();
+
+						if (feePartsMap.containsKey(ServiceCodeEnum.SERVICE_FEE.getCode())) {
+							FeePartsDetailsVo feePartsDetailsVo = feePartsMap
+									.get(ServiceCodeEnum.SERVICE_FEE.getCode());
+							if (feePartsDetailsVo.getAmount() < serviceAmount) {
+								feePartsDetailsVo.setAmount(serviceAmount);
+							}
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+						} else {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(serviceAmount);
+							feePartsDetailsVo.setHOA(feeDto.getHOA());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsMap.put(ServiceCodeEnum.SERVICE_FEE.getCode(), feePartsDetailsVo);
+						}
+						break;
+					case POSTAL_FEE:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.POSTAL_FEE.getCode())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(feeDto.getAmount());
+							feePartsDetailsVo.setHOA(feeDto.getHOA());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsMap.put(ServiceCodeEnum.POSTAL_FEE.getCode(), feePartsDetailsVo);
+						}
+						break;
+					case TEST_FEE:// It will add head one only
+						if (feePartsMap.containsKey(ServiceCodeEnum.TEST_FEE.getCode())) {
+							FeePartsDetailsVo feePartsDetailsVo = feePartsMap.get(ServiceCodeEnum.TEST_FEE.getCode());
+							feePartsDetailsVo.setAmount(feePartsDetailsVo.getAmount() + feeDto.getAmount());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+						} else {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(feeDto.getAmount());
+							feePartsDetailsVo.setHOA(feeDto.getHOA());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsMap.put(ServiceCodeEnum.TEST_FEE.getCode(), feePartsDetailsVo);
+						}
+						break;
+						
+						case CARD:// It will add head 1 only
+						if (!feePartsMap.containsKey(ServiceCodeEnum.CARD.getCode())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(feeDto.getAmount());
+							feePartsDetailsVo.setHOA(feeDto.getHOA());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsMap.put(ServiceCodeEnum.CARD.getCode(), feePartsDetailsVo);
+						}
+						break;
+
+					
+					case LATE_FEE:
+
+						if (!feePartsMap.containsKey(ServiceCodeEnum.LATE_FEE.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(lateFee);
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							// feePartsDetailsVo.setHOA(greenTaxHoa);
+							feePartsMap.put(ServiceCodeEnum.LATE_FEE.getTypeDesc(), feePartsDetailsVo);
+						}
+
+						break;
+					case PENALTY: // TODO: it's for some services of DL like DL
+						if (!feePartsMap.containsKey(ServiceCodeEnum.PENALTY.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(m.getPenality().doubleValue());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("qutrelyTaxHoa"));
+							feePartsMap.put(ServiceCodeEnum.PENALTY.getTypeDesc(), feePartsDetailsVo);
+						}
+
+						break;
+					case PENALTYARREARS:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.PENALTYARREARS.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(m.getPenalityArrears().doubleValue());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("qutrelyTaxHoa"));
+							feePartsMap.put(ServiceCodeEnum.PENALTYARREARS.getTypeDesc(), feePartsDetailsVo);
+						}
+
+						break;
+					case TAXARREARS: // TODO: it's for some services of DL like
+										// DL
+						if (!feePartsMap.containsKey(ServiceCodeEnum.TAXARREARS.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(m.getTaxArrears().doubleValue());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("qutrelyTaxHoa"));
+							feePartsMap.put(ServiceCodeEnum.TAXARREARS.getTypeDesc(), feePartsDetailsVo);
+						}
+						break;
+						
+					case AUTHORIZATION:
+						if (feePartsMap.containsKey(ServiceCodeEnum.AUTHORIZATION.getCode())) {
+							FeePartsDetailsVo feePartsDetailsVo = feePartsMap
+									.get(ServiceCodeEnum.AUTHORIZATION.getCode());
+							feePartsDetailsVo.setAmount(feePartsDetailsVo.getAmount() + feeDto.getAmount());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+						} else {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(feeDto.getAmount());
+							feePartsDetailsVo.setHOA(feeDto.getHOA());
+							feePartsDetailsVo.setCredit_Account(paymentsHelper.readPropforRules().get("rtaCreditAccount"));
+							feePartsMap.put(ServiceCodeEnum.AUTHORIZATION.getCode(), feePartsDetailsVo);
+
+						}
+						break;
+						
+					case FC_LATE_FEE:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.FC_LATE_FEE.getTypeDesc())) {
+							FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+							feePartsDetailsVo.setAmount(lateFeeForFC);
+							feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("applicationFeeHoa"));
+							feePartsMap.put(ServiceCodeEnum.FC_LATE_FEE.getTypeDesc(), feePartsDetailsVo);
+						}
+						break;
+
+					case TAXSERVICEFEE:
+						if (!feePartsMap.containsKey(ServiceCodeEnum.TAXSERVICEFEE.getTypeDesc())) {
+							if (taxServiceFeeAmount != 0) {
+								FeePartsDetailsVo feePartsDetailsVo = new FeePartsDetailsVo();
+								feePartsDetailsVo.setAmount(taxServiceFeeAmount);
+								feePartsDetailsVo.setHOA(paymentsHelper.readPropforRules().get("serviceFeeHoa"));
+								feePartsMap.put(ServiceCodeEnum.TAXSERVICEFEE.getTypeDesc(), feePartsDetailsVo);
+							}
+						}
+
+						break;
+					default:
+						//logger.warn("SubHeadCode {} is not Found ", feeDto.getHOADESCRIPTION());
+						break;
+
+
+
+
+}
+}
+ 	}}
+ 	m.setFeeParts(feePartsMap);
+ 	
+end
+
+
+
+rule FEE_TYPE
+salience 102
+
+when
+m:FeePartsVO(CollectionUtils.isNotEmpty(m.getFeeList()))
+
+then
+System.out.println("FEE_TYPE rule");
+
+end
+
+

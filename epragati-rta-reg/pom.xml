@@ -1,0 +1,55 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<groupId>org.springframework</groupId>
+	<artifactId>epragati-rta-reg</artifactId>
+	<version>1.0.0</version>
+	<packaging>pom</packaging>
+
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>1.5.8.RELEASE</version>
+	</parent>
+
+	<name>Epragati Registration PARENT</name>
+	<description>Epragati Registration</description>
+
+	<modules>
+		 <module>epragati-pan</module>
+		<module>epragati-vahan</module>
+		<module>epragati-pss</module> 
+		<module>epragati-reg-controller</module>
+		 <module>epragati-reg-cache</module>
+		<module>epragati-reg-dao</module>
+		<module>epragati-reg-notification</module>
+		<module>epragati-reg-rules</module>
+		<module>epragati-reg-services</module>
+		<module>epragati-reg-vo</module>
+		<module>epragati-reg-bpm</module>
+		<module>epragati-reg-util</module>
+		<module>epragati-reg-security</module>
+		<module>epragati-vcr</module>
+		<module>epragati-reg-sp-number</module> 
+		<module>epragati-reg-cfst-svsearch</module>
+		<module>epragati-hsrp</module>
+		<module>epragati-reg-cfst-engchs</module>
+		<module>epragati-reg-payment</module>
+		<module>epragati-redis-cache</module>
+		<module>epragati-reg-activemq</module>
+		<module>epragati-reg-alerts</module>
+		<module>epragati-reg-cfst-sync</module>
+		<module>epragati-reg-excel</module>
+		<module>epragati-elastic-search</module>
+		<module>epragati-reg-cfst-vcr</module>
+		<module>epragati-reg-scheduler</module>
+		<module>epragati-reg-sp-common</module>
+		<module>epragati-reg-common</module>
+		<!-- <module>epragati-reg-paymentrules</module> -->
+		<module>epragati-reg-reports</module>
+		<module>epragati-reg-vahan-sync</module>
+		<module>epragati-tickets</module>
+	</modules>
+</project>

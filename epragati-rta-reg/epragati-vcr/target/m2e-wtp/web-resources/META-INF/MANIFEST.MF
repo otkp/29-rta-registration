@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Built-By: Admin
+Build-Jdk: 14.0.1
+Implementation-Title: Epragati Registration VCR
+Implementation-Version: 1.5.8.RELEASE
+Implementation-Vendor-Id: org.epragati
+Implementation-Vendor: Pivotal Software, Inc.
+Implementation-URL: http://projects.spring.io/spring-boot/epragati-vcr/
+Created-By: Maven Integration for Eclipse
+

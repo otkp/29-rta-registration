@@ -1,0 +1,283 @@
+package org.epragati.rules.service
+
+import org.epragati.rules.RuleEngineObject
+import org.epragati.regservice.dto.AlterationDTO
+import org.epragati.regservice.dto.RegServiceDTO
+import org.epragati.master.dto.MasterPayperiodDTO
+import org.epragati.master.dto.StagingRegistrationDetailsDTO
+import org.epragati.master.dto.MasterAmountSecoundCovsDTO
+import org.epragati.master.dto.MasterTax
+import java.util.Optional
+import java.util.List
+import org.springframework.data.util.Pair
+import org.epragati.util.payment.ClassOfVehicleEnum
+import org.epragati.constants.OwnerTypeEnum
+import org.epragati.tax.vo.TaxTypeEnum
+global org.epragati.taxserviceImpl.CitizenDroolsTaxServiceImpl ruleHelper;
+global org.epragati.master.dao.RegistrationDetailDAO registrationDetailDAO;
+global org.epragati.master.dao.StagingRegistrationDetailsDAO stagingRegistrationDetailsDAO; 
+global org.epragati.master.dao.AlterationDAO alterationDAO;
+global org.epragati.master.dao.RegServiceDAO regServiceDAO;
+global org.epragati.master.dao.MasterPayperiodDAO masterPayperiodDAO;
+global org.epragati.master.dao.MasterTaxDAO masterTaxDAO;
+global org.epragati.master.dao.MasterAmountSecoundCovsDAO masterAmountSecoundCovsDAO;
+
+
+rule "CHASSIS_APPLICATION"
+no-loop
+salience 100
+when
+m : RuleEngineObject(isChassisApplication()!=null && isChassisApplication())
+if (!stagingRegistrationDetailsDAO
+					.findByApplicationNo(m.getApplicationNo()).isPresent()) do[datanotpresent]
+if (stagingRegistrationDetailsDAO
+					.findByApplicationNo(m.getApplicationNo()).isPresent()) do[datapresent]
+     
+then
+System.out.println("CHASSIS Application from Rule");
+then[datanotpresent]
+System.out.println("No records Found");
+then[datapresent]
+StagingRegistrationDetailsDTO stagingdetails=stagingRegistrationDetailsDAO
+					.findByApplicationNo(m.getApplicationNo()).get();
+   	System.out.println(" records Found");
+  Optional<AlterationDTO> alterDetails=alterationDAO.findByApplicationNo(stagingRegistrationDetailsDAO
+					.findByApplicationNo(m.getApplicationNo()).get().getApplicationNo());
+					
+if(!alterDetails.isPresent())  {System.out.println("No alter records found");}
+					
+if(alterDetails.isPresent())   {System.out.println(" alter records Found");
+  Optional<MasterPayperiodDTO> period = masterPayperiodDAO.findByCovcode(alterDetails.get().getCov());
+if(!period.isPresent()) {System.out.println("payPeriod not found");}
+					       	System.out.println("check payPeriod value"+period.get());
+modify(m)
+					  {
+					  setPayPeriod(period.get()),
+					 setAlterationDetails(alterDetails.get()),
+					 setStagingDetails(stagingdetails)
+					  };
+					  System.out.println("--payperiod--"+m.getPayPeriod().getPayperiod());	
+update(m);}
+end
+ 	
+//for GCRT and TGVT if gvw is <=3000 LifeTax else QuarterlyTax
+ 	
+rule "SET_PAYPERIOD_GCRT_TGVT"
+salience 80
+when 
+m : RuleEngineObject(isChassisApplication() && getPayPeriod()!=null  &&  (getPayPeriod().getCovcode().equalsIgnoreCase(ClassOfVehicleEnum.GCRT.getCovCode())||getPayPeriod().getCovcode().equalsIgnoreCase(ClassOfVehicleEnum.TGVT.getCovCode())))
+if (m.getStagingDetails().getVahanDetails().getGvw() <= 3000) do[LifeTax]
+else do[QuarterlyTax]
+
+then
+System.out.println("SET_PAYPERIOD_GCRT_TGVT");
+then[QuarterlyTax] 
+System.out.println("Quarterly Tax"); 
+m.getPayPeriod().setPayperiod(TaxTypeEnum.QuarterlyTax.getCode());
+System.out.println("payperiod"  +m.getPayPeriod().getPayperiod()); 
+
+      	
+then[LifeTax]
+System.out.println("Life Tax");
+m.getPayPeriod().setPayperiod(TaxTypeEnum.LifeTax.getCode());
+System.out.println("payperiod"  +m.getPayPeriod().getPayperiod()); 
+m.setGoStatus(true);
+end    
+ 	
+ //for OBPN cov if seating >10 Quartelry else lifeTax	
+rule "SET_PAYPERIOD_OBPN"
+salience 80
+when 
+m : RuleEngineObject(isChassisApplication() && getPayPeriod()!=null  &&  (getPayPeriod().getCovcode().equalsIgnoreCase(ClassOfVehicleEnum.OBPN.getCovCode())))
+if (Integer.parseInt(m.getAlterationDetails().getFromSeatingCapacity()) > 10) do[QuarterlyTax] 	
+else do[LifeTax]
+
+then
+System.out.println("SET_PAYPERIOD_OBPN"); 
+	
+then[QuarterlyTax]
+System.out.println("QUARTERLY"); 
+m.getPayPeriod().setPayperiod(TaxTypeEnum.QuarterlyTax.getCode());
+then[LifeTax]
+System.out.println("LifeTax"); 
+m.getPayPeriod().setPayperiod(TaxTypeEnum.LifeTax.getCode());
+end 
+
+//for OBPN
+
+rule "SET_PAYPERIOD_ARKT"
+no-loop
+salience 80
+
+
+when 
+m : RuleEngineObject(isChassisApplication() && getPayPeriod()!=null  &&  (getPayPeriod().getCovcode().equalsIgnoreCase(ClassOfVehicleEnum.ARKT.getCovCode())))
+if (Integer.parseInt(m.getAlterationDetails().getFromSeatingCapacity()) <=4) do[LifeTax] 	
+else do[QuarterlyTax]
+
+then
+System.out.println("SET_PAYPERIOD_ARKT"); 
+	
+then[QuarterlyTax]
+System.out.println("QUARTERLY"); 
+m.getPayPeriod().setPayperiod(TaxTypeEnum.QuarterlyTax.getCode());
+System.out.println("for ARKT cov"+m.getPayPeriod().getPayperiod()); 
+
+then[LifeTax]
+System.out.println("LifeTaxx");
+
+m.getPayPeriod().setPayperiod(TaxTypeEnum.LifeTax.getCode());
+m.setGoStatus(true);
+
+System.out.println("for ARKT cov"+m.getPayPeriod().getPayperiod()+"status"+m.isGoStatus());
+end    	
+
+ 
+   	
+//rule "GO_STATUS"
+//salience 50
+//when 
+//m :RuleEngineObject(isChassisApplication())
+//then
+//System.out.println("go Status---------------------"+m.isGoStatus()); 
+//ruleHelper.test(m.isChassisApplication() , m.getStagingDetails(), m.getApplicationNo(),"LifeTax",m.getPayPeriod());   	
+//end
+
+
+
+//
+rule "SET_MASTER_AMOUNT_SECOND_DATA"
+salience 60
+when 
+m :RuleEngineObject(isChassisApplication())
+then
+System.out.println("PaymentType :"+m.getPayPeriod()); 
+ruleHelper.paymentType(m.isChassisApplication(),m.getStagingDetails(),"",m.getPayPeriod(),m.getAlterationDetails());
+Optional<MasterAmountSecoundCovsDTO> basedOnInvoice = Optional.empty();
+List<MasterAmountSecoundCovsDTO> masterAmountSecoundCovsDTO = masterAmountSecoundCovsDAO.findAll();
+if(!masterAmountSecoundCovsDTO.isEmpty())
+{
+m.setMasterAmountSecoundCovsDTO(masterAmountSecoundCovsDTO);
+}
+
+end
+
+
+
+rule "CHASSIS_LIFETAX"
+salience 40
+when
+m : RuleEngineObject(isChassisApplication()!=null && isChassisApplication())
+//if ownerType Govt or Police 
+if (m.getStagingDetails().getOwnerType().getCode().equalsIgnoreCase(OwnerTypeEnum.Government.getCode()) ||  m.getStagingDetails().getOwnerType().getCode().equalsIgnoreCase(OwnerTypeEnum.POLICE.getCode())) do[LIFETAX_GOVT_POLICE]
+
+
+//if Invoice>100000 and MasterAmountSecondCovsDTO amountcovs contains altered cov && and OwnerType Individual 
+else if (m.getStagingDetails().getInvoiceDetails().getInvoiceValue() > 1000000 && ruleHelper.verifyAmountCovs(m.getMasterAmountSecoundCovsDTO(),m.getAlterationDetails()).isPresent() && m.getStagingDetails().getOwnerType().getCode().equalsIgnoreCase(OwnerTypeEnum.Individual.getCode())) do[INVOICE_INV_OWNER]
+
+//if second vehicle and MasterAmountSecoundCovsDTO secondcovs contain alteredcov
+else if(ruleHelper.verifySecondCovs(m.getMasterAmountSecoundCovsDTO(),m.getAlterationDetails()).isPresent() &&  !m.getStagingDetails().getIsFirstVehicle()) do[SECOND_VEHICLE_COV]
+
+//Chassis LifeTax for IVCN cov
+else if(m.getAlterationDetails().getCov().equalsIgnoreCase(ClassOfVehicleEnum.IVCN.getCovCode())) do[COV_IVCN]
+
+else do[DEFAULT_LIFE_TAX]
+
+then
+System.out.println("CHASSIS_LIFETAX from rule");
+//if ownerType Govt or Police 
+then[LIFETAX_GOVT_POLICE]
+ System.out.println("GOVT_POLICE");
+TaxTypeEnum.TaxPayType payTaxType = TaxTypeEnum.TaxPayType.DIFF;
+Optional<MasterTax> OptionalLifeTax = masterTaxDAO.findByCovcodeAndOwnershiptypeIgnoreCaseAndStatecodeAndStatusAndFromage(m.getAlterationDetails().getCov(),m.getStagingDetails().getOwnerType().getCode(), "AP", "Recent",0);
+if (!OptionalLifeTax.isPresent()) {
+System.out.println("No record found in master_tax for: " + m.getAlterationDetails().getCov() + "and"+ m.getStagingDetails().getOwnerType());
+}
+
+Double	totalLifeTax = (m.getStagingDetails().getInvoiceDetails().getInvoiceValue()* OptionalLifeTax.get().getPercent() / 100);
+
+if (totalLifeTax.equals(Double.valueOf(0))) {
+ ruleHelper.returnTaxDetails(TaxTypeEnum.LifeTax.getDesc(), 0l, 0d, ruleHelper.lifTaxValidityCal(), 0l, 0d,
+payTaxType, "");
+}
+
+Pair<Long, Double> lifeTax = ruleHelper.lifeTaxCalculation(m.getStagingDetails(),totalLifeTax, OptionalLifeTax.get().getPercent(),m.isChassisApplication());
+System.out.println("lifetTax" +lifeTax);
+
+ ruleHelper.returnTaxDetails(TaxTypeEnum.LifeTax.getDesc(), lifeTax.getFirst(), lifeTax.getSecond(),ruleHelper.lifTaxValidityCal(), 0l, 0d, payTaxType, "");
+ 
+ 
+//if Invoice>100000 and MasterAmountSecondCovsDTO contains altered cov && and OwnerType Individual 
+then[INVOICE_INV_OWNER] 
+TaxTypeEnum.TaxPayType payTaxType = TaxTypeEnum.TaxPayType.DIFF;
+
+System.out.println("Invoice greater than 100000 and ownerType INV ");
+MasterAmountSecoundCovsDTO amountCovs=ruleHelper.verifyAmountCovs(m.getMasterAmountSecoundCovsDTO(),m.getAlterationDetails()).get();
+
+Double totalLifeTax = (m.getStagingDetails().getInvoiceDetails().getInvoiceValue()* amountCovs.getTaxpercentinvoice() / 100f);
+
+Pair<Long, Double> lifeTax = ruleHelper.lifeTaxCalculation(m.getStagingDetails(),totalLifeTax, amountCovs.getTaxpercentinvoice(),m.isChassisApplication());
+
+ruleHelper.returnTaxDetails(TaxTypeEnum.LifeTax.getDesc(), lifeTax.getFirst(), lifeTax.getSecond(),ruleHelper.lifTaxValidityCal(), 0l, 0d, payTaxType, ""); 
+System.out.println("life tax for invoice and inv owner"+lifeTax);
+ 
+ //if second vehicle and MasterAmountSecoundCovsDTO secondcovs contain alteredcov
+then[SECOND_VEHICLE_COV]
+TaxTypeEnum.TaxPayType payTaxType = TaxTypeEnum.TaxPayType.DIFF;
+
+System.out.println("SecondVehicle cov for Chassis LifeTax");
+
+MasterAmountSecoundCovsDTO secondCovs=ruleHelper.verifySecondCovs(m.getMasterAmountSecoundCovsDTO(),m.getAlterationDetails()).get();
+
+Double totalLifeTax = (m.getStagingDetails().getInvoiceDetails().getInvoiceValue()
+						*secondCovs.getSecondvehiclepercent() / 100f);
+Pair<Long, Double> lifeTax = ruleHelper.lifeTaxCalculation(m.getStagingDetails(),totalLifeTax, secondCovs.getSecondvehiclepercent(), m.isChassisApplication());
+System.out.println("life tax for invoice and inv owner"+lifeTax);
+
+ruleHelper.returnTaxDetails(TaxTypeEnum.LifeTax.getDesc(), lifeTax.getFirst(), lifeTax.getSecond(),ruleHelper.lifTaxValidityCal(), 0l, 0d, payTaxType, ""); 
+ 
+ //if IVCN Cov
+ then[COV_IVCN]
+TaxTypeEnum.TaxPayType payTaxType = TaxTypeEnum.TaxPayType.DIFF;
+ System.out.println("life tax for IVCN");
+ ruleHelper.returnTaxDetails(TaxTypeEnum.LifeTax.getDesc(), 0l, 0d, ruleHelper.lifTaxValidityCal(), 0l, 0d, payTaxType,"");  
+ 
+then[DEFAULT_LIFE_TAX]
+ System.out.println("life tax for DEFAULT");
+
+TaxTypeEnum.TaxPayType payTaxType = TaxTypeEnum.TaxPayType.DIFF;
+Optional<MasterTax> OptionalLifeTax = masterTaxDAO.findByCovcodeAndOwnershiptypeIgnoreCaseAndStatecodeAndStatusAndFromage(m.getAlterationDetails().getCov(),m.getStagingDetails().getOwnerType().getCode(), "AP", "Recent",0);
+if (!OptionalLifeTax.isPresent()) {
+System.out.println("No record found in master_tax for: " + m.getAlterationDetails().getCov() + "and"+ m.getStagingDetails().getOwnerType());
+}
+Double totalLifeTax = (m.getStagingDetails().getInvoiceDetails().getInvoiceValue()* OptionalLifeTax.get().getPercent() / 100f);
+
+Pair<Long, Double> lifeTax = ruleHelper.lifeTaxCalculation(m.getStagingDetails(), totalLifeTax, OptionalLifeTax.get().getPercent(), m.isChassisApplication());
+
+ruleHelper.returnTaxDetails(TaxTypeEnum.LifeTax.getDesc(), lifeTax.getFirst(), lifeTax.getSecond(),ruleHelper.lifTaxValidityCal(), 0l, 0d, payTaxType, ""); 
+ 
+end
+
+
+
+
+     
+
+   	
+rule "VERIFY_RULEENGINE"
+salience 60
+when 
+m : RuleEngineObject(isChassisApplication())
+then 
+System.out.println("verify rule Engine"+m.getPayPeriod().getPayperiod() +"status"+m.isGoStatus()); 
+end
+ 	       	
+ 	
+ 	
+ 	
+ 	
+ 	
+ 	
+ 
+ 	
+ 	
